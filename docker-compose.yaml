@@ -1,0 +1,240 @@
+version: '3.8'
+
+services:
+  db:
+    image: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongoadmin
+      MONGO_INITDB_ROOT_PASSWORD: mongopassword
+    volumes:
+      - db-data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: always
+    hostname: "rmq"
+    ports:
+      - "9090:15672"
+      - "5672:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - app-network
+
+  tickets-repo:
+    image: ghcr.io/uberoy/dystopia.repository:latest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_started
+    restart: always
+    ports:
+      - "5950:5950"
+      - "5050:5050"
+    environment:
+      - RabbitMQ__Uri=amqp://guest:guest@rabbitmq:5672
+      - MongoDb__ConnectionString=mongodb://mongoadmin:mongopassword@db:27017
+      - RabbitMq__ClientProvidedName=DystopiaSupportReceiver
+      - RabbitMq__ExchangeName=DystopiaExchange
+      - RabbitMq__QueueName=DystopiaQueue
+      - RabbitMq__RoutingKey=dystopia-routing-key
+    networks:
+      - app-network
+
+  tickets-api:
+    image: ghcr.io/uberoy/dystopia.api:latest
+    depends_on:
+      - tickets-repo
+      - rabbitmq
+    restart: always
+    ports:
+      - "5951:5951"
+    networks:
+      - app-network
+
+  tickets-api-get:
+    image: ghcr.io/uberoy/dystopia.api.get:latest
+    depends_on:
+      - tickets-repo
+    restart: always
+    ports:
+      - "5952:5952"
+    environment:
+      - REPO_URI=http://tickets-repo:5050
+    networks:
+      - app-network
+
+  bookings-repo:
+    image: saherzaid1/bookingrepository:v20241219112152
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_started
+    restart: always
+    ports:
+      - "7950:7950"
+      - "7050:7050"
+    environment:
+      - RabbitMQ__Uri=amqp://guest:guest@rabbitmq:5672
+      - RabbitMq__ClientProvidedName=BookingService
+      - RabbitMq__ExchangeName=BookingExchange
+      - RabbitMq__QueueName=BookingQueue
+      - RabbitMq__RoutingKey=booking-routing-key
+    networks:
+      - app-network
+
+  bookings-api:
+    image: ghcr.io/saherzaid/bookingpost.api:latest
+    depends_on:
+      - bookings-repo
+      - rabbitmq
+    restart: always
+    ports:
+      - "7951:7951"
+    networks:
+      - app-network
+
+  bookings-api-get:
+    image: saherzaid1/bookingget:v20241219092029
+    depends_on:
+      - bookings-repo
+    restart: always
+    ports:
+      - "7952:7952"
+    environment:
+      - REPO_URI=http://bookings-repo:7050
+    networks:
+      - app-network
+
+  rooms-repo:
+    image: ghcr.io/tyrhvid/roomservice.database:latest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_started
+    restart: always
+    ports:
+      - "4950:4950"
+      - "4050:4050"
+    environment:
+      - RabbitMQ__Uri=amqp://guest:guest@rabbitmq:5672
+      - MongoDb__ConnectionString=mongodb://mongoadmin:mongopassword@db:27017
+      - RabbitMq__ClientProvidedName=RoomServiceReceiver
+      - RabbitMq__ExchangeName=RoomServiceExchange
+      - RabbitMq__QueueName=RoomServiceQueue
+      - RabbitMq__RoutingKey=RoomService-routing-key
+    networks:
+      - app-network
+
+  rooms-api:
+    image: ghcr.io/tyrhvid/roomservice.postapi:latest
+    depends_on:
+      - rooms-repo
+      - rabbitmq
+    restart: always
+    ports:
+      - "4951:4951"
+    networks:
+      - app-network
+
+  rooms-api-get:
+    image: ghcr.io/tyrhvid/roomservice.getapi:latest
+    depends_on:
+      - rooms-repo
+    restart: always
+    ports:
+      - "4952:4952"
+    environment:
+      - REPO_URI=http://rooms-repo:4050
+    networks:
+      - app-network
+
+  customer-repo:
+    image: ghcr.io/r15b3rg/hotelcustomerapi:latest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_started
+    restart: always
+    ports:
+      - "6950:6950"
+      - "6050:6050"
+    environment:
+      - RabbitMQ__Uri=amqp://guest:guest@rabbitmq:5672
+      - MongoDb__ConnectionString=mongodb://mongoadmin:mongopassword@db:27017
+      - RabbitMq__ClientProvidedName=CustomerServiceReceiver
+      - RabbitMq__ExchangeName=CustomerServiceExchange
+      - RabbitMq__QueueName=CustomerServiceQueue
+      - RabbitMq__RoutingKey=CustomerService-routing-key
+    networks:
+      - app-network
+
+  customer-api:
+    image: ghcr.io/r15b3rg/hotelcustomerpost:latest
+    depends_on:
+      - customer-repo
+      - rabbitmq
+    restart: always
+    ports:
+      - "6951:6951"
+    networks:
+      - app-network
+
+  customer-api-get:
+    image: ghcr.io/r15b3rg/hotelcustomerget:latest
+    depends_on:
+      - customer-repo
+    restart: always
+    ports:
+      - "6952:6952"
+    environment:
+      - REPO_URI=http://customer-repo:6050
+    networks:
+      - app-network
+
+  frontend:
+    image: ghcr.io/uberoy/dystopia.frontend:latest
+    ports:
+      - "7777:80"
+    networks:
+      - app-network
+
+  ocelot:
+    image: ghcr.io/uberoy/dystopia.gateway:latest
+    restart: always
+    ports:
+      - "5000:5000" 
+    depends_on:
+      - tickets-api
+      - tickets-api-get
+      - rooms-api
+      - rooms-api-get
+    networks:
+      - app-network
+
+volumes:
+  db-data:
+
+networks:
+  app-network:
+    driver: bridge
